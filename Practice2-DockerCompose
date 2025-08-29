@@ -1,0 +1,30 @@
+// docker-compose file 
+// Originally this file is in the built-in , in /mnt/projects/
+// copy  this docker file in the slave1 of /mnt/projects/
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: test
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin123
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+      - ./mysql-init.sql:/docker-entrypoint-initdb.d/mysql-init.sql
+    ports:
+      - "3306:3306"
+
+  tomcat:
+    build: .
+    container_name: tomcat_app
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+
+
+    //  docker exec -it  mysql_db -u admin -p admin123
