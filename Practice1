@@ -1,0 +1,110 @@
+//mysql -h  database-1.c9m8ka8m2gn0.us-east-2.rds.amazonaws.com -u admin -p    <<<--- press enter and add password 
+//  show databases;
+//   use test;     <<--- test is the name of databe which we have created. 
+//  SHOW TABLES;    <<-- list the tables in the  database test
+//    DESCRIBE `USER`;  <<<--- user is the name of table created in the database "test"
+// SELECT * FROM `USER`;   <<<--- show the data in the table 
+
+# The correct one :- 
+
+pipeline {
+    agent none  
+
+    environment {
+        MAVEN_HOME   = '/mnt/build-tools/apache-maven-3.9.11'   // from the built-in
+        PROJECT_HOME = '/mnt/projects/'                         // from the built-in
+        TOMCAT_HOME  = '/mnt/servers/apache-tomcat-10.1.44'     // from the slave1
+        WAR_NAME     = 'LoginWebApp'
+        REPO_DIR     = 'project'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            agent { label 'built-in' }
+            steps {
+                dir("${PROJECT_HOME}") {
+                    cleanWs()
+                    sh 'git clone https://github.com/SR-DevOps-Profile/project.git'
+                }
+            }
+        }
+
+        stage('Database and App Configuration') {
+            agent { label 'built-in' }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'DB_UR', variable: 'DB_ENDPOINT'),
+                    usernamePassword(credentialsId: 'DB_CREDENTIALS', usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD')
+                ]) {
+                    echo 'Initializing database and creating table...'
+                    sh '''
+                        mysql -h "$DB_ENDPOINT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "
+                            DROP DATABASE IF EXISTS test;
+                            CREATE DATABASE test;
+                            USE test;
+                            CREATE TABLE USER (
+                                id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+                                first_name VARCHAR(45) NOT NULL,
+                                last_name VARCHAR(45) NOT NULL,
+                                email VARCHAR(45) NOT NULL,
+                                username VARCHAR(45) NOT NULL,
+                                password VARCHAR(45) NOT NULL,
+                                regdate DATE NOT NULL,
+                                PRIMARY KEY (id)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+                        "
+                    '''
+
+                    echo 'Updating application source code with new database connection details...'
+                    dir("${PROJECT_HOME}/${REPO_DIR}/src/main/webapp") {
+                        sh '''
+                            sed -i "s|.*Connection con = DriverManager.getConnection(\\\"jdbc:mysql:.*|Connection con = DriverManager.getConnection(\\\"jdbc:mysql://${DB_ENDPOINT}:3306/test\\\", \\\"${DB_USERNAME}\\\", \\\"${DB_PASSWORD}\\\");|" userRegistration.jsp
+                            sed -i '/"root", "root");/d' userRegistration.jsp    
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Build Application') {
+            agent { label 'built-in' }
+            steps {
+                dir("${PROJECT_HOME}/${REPO_DIR}") {
+                    sh "${MAVEN_HOME}/bin/mvn clean package"
+                    stash name: 'my-app-war', includes: "target/${WAR_NAME}.war"
+                }
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            agent { label 'slave1' }
+            steps {
+                echo 'Unstashing WAR file on slave1 for deployment.'
+                dir('/mnt/artifacts') {     // give permission to the artifacts 1st
+                    sh 'rm -rf *'
+                    unstash 'my-app-war'
+                }
+
+                echo 'Stopping Tomcat and cleaning old deployment...'
+                dir("${TOMCAT_HOME}/bin") {
+                    sh './shutdown.sh'
+                }
+
+                sh "sudo rm -rf ${TOMCAT_HOME}/webapps/${WAR_NAME}.war"
+                sh "sudo rm -rf ${TOMCAT_HOME}/webapps/${WAR_NAME}"
+                sh "sudo cp /mnt/artifacts/target/${WAR_NAME}.war ${TOMCAT_HOME}/webapps/"
+            }
+        }
+
+        stage('Startup Tomcat') {
+            agent { label 'slave1' }
+            steps {
+                echo 'Starting Tomcat server in the background...'
+                dir("${TOMCAT_HOME}/bin/") {
+                    sh 'nohup ./startup.sh &'
+                }
+                echo 'Tomcat startup command executed. The pipeline will now finish.'
+            }
+        }
+    }
+}
