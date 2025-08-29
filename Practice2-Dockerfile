@@ -1,0 +1,14 @@
+// Dockerfile 
+// Originally this file is in the built-in , in /mnt/projects/
+// copy  this docker file in the slave1 of /mnt/projects/
+
+FROM tomcat:10.1-jdk17
+
+# Remove default ROOT app
+RUN rm -rf /usr/local/tomcat/webapps/*
+
+# Copy WAR file into Tomcat 
+COPY ./target/LoginWebApp.war /usr/local/tomcat/webapps/LoginWebApp.war
+
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
