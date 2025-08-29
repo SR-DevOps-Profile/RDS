@@ -15,7 +15,7 @@ pipeline {
             steps {
                 dir("${PROJECT_HOME}") {
                     sh "rm -rf ${PROJECT_HOME}/${REPO_DIR}"
-                    sh 'git clone https://github.com/KunalGKNY/project.git'
+                    sh 'git clone https://github.com/SR-DevOps-Profile/project.git'
                 }
             }
         }
