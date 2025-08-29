@@ -1,6 +1,8 @@
 // docker-compose file 
 // Originally this file is in the built-in , in /mnt/projects/
 // copy  this docker file in the slave1 of /mnt/projects/
+
+
 services:
   mysql:
     image: mysql:8.0
