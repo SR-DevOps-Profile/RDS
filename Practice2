@@ -1,0 +1,76 @@
+pipeline {
+    agent none
+
+    environment {
+        MAVEN_HOME    = '/mnt/build-tools/apache-maven-3.9.11'
+        PROJECT_HOME  = '/mnt/projects'
+        REPO_DIR      = 'project'
+        WAR_NAME      = 'LoginWebApp'
+        ARTIFACTS_DIR = '/mnt/artifacts'  // slave1 location
+    }
+
+    stages {
+        stage('Clone Repository') {
+            agent { label 'built-in' }
+            steps {
+                dir("${PROJECT_HOME}") {
+                    sh "rm -rf ${PROJECT_HOME}/${REPO_DIR}"
+                    sh 'git clone https://github.com/KunalGKNY/project.git'
+                }
+            }
+        }
+
+        stage('Update DB Connection in Code') {
+            agent { label 'built-in' }
+            steps {
+                dir("${PROJECT_HOME}/${REPO_DIR}/src/main/webapp") {
+                    sh '''
+                        sed -i "s|.*Connection con = DriverManager.getConnection(\\\"jdbc:mysql:.*|Connection con = DriverManager.getConnection(\\\"jdbc:mysql://mysql:3306/test\\\", \\\"admin\\\", \\\"admin123\\\");|" userRegistration.jsp
+                        sed -i '/"root", "root");/d' userRegistration.jsp
+                    '''
+                }
+            }
+        }
+
+        stage('Build Application') {
+            agent { label 'built-in' }
+            steps {
+                dir("${PROJECT_HOME}/${REPO_DIR}") {
+                    sh "${MAVEN_HOME}/bin/mvn clean package"
+                    stash name: 'war-file', includes: "target/${WAR_NAME}.war"
+                }
+                dir("${PROJECT_HOME}") {
+                    stash name: 'docker-files', includes: "Dockerfile,docker-compose.yml,mysql-init.sql"
+                }
+            }
+        }
+
+        stage('Prepare Artifacts on Slave1') {
+            agent { label 'slave1' }
+            steps {
+                dir("${ARTIFACTS_DIR}") {
+                    sh 'docker-compose down || true'
+                    sh 'rm -rf *'
+                    unstash 'war-file'
+                    unstash 'docker-files'
+                    sh 'mkdir -p mysql-data && chown -R 999:999 mysql-data'
+                }
+            }
+        }
+
+        stage('Deploy with Docker Compose') {
+            agent { label 'slave1' }
+            steps {
+                dir("${ARTIFACTS_DIR}") {
+                    sh 'docker-compose up -d --build'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
